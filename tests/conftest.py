@@ -11,7 +11,7 @@ from pathlib import Path
 # Debe definirse ANTES de importar la aplicación: config.py lee estas variables al cargarse.
 _TMP = Path(tempfile.mkdtemp(prefix="auditor-pruebas-"))
 os.environ["DB_PATH"] = str(_TMP / "pruebas.db")
-os.environ["JWT_SECRET"] = "secreto-solo-para-pruebas"
+os.environ["JWT_SECRET"] = "secreto-solo-para-pruebas-de-32-caracteres-o-mas"
 for clave in ("OPENAI_API_KEY", "GEMINI_API_KEY", "PAGESPEED_API_KEY"):
     os.environ[clave] = ""
 

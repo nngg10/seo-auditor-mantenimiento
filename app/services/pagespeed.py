@@ -11,16 +11,18 @@ class PageSpeedError(Exception):
 class ClientePageSpeed:
     ENDPOINT = "https://www.googleapis.com/pagespeedonline/v5/runPagespeed"
 
-    def __init__(self, api_key: str = PAGESPEED_API_KEY, timeout: float = PAGESPEED_TIMEOUT):
+    def __init__(self, api_key: str = PAGESPEED_API_KEY, timeout: float = PAGESPEED_TIMEOUT,
+                 transporte: httpx.AsyncBaseTransport | None = None):
         self.api_key = api_key
         self.timeout = timeout
+        self.transporte = transporte  # HU-M02: permite simular errores y tiempos agotados en pruebas
 
     async def consultar(self, url: str, estrategia: str = "mobile") -> dict:
         params = [("url", url), ("strategy", estrategia), ("category", "performance"), ("category", "seo"), ("locale", "es")]
         if self.api_key:
             params.append(("key", self.api_key))
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as cliente:
+            async with httpx.AsyncClient(timeout=self.timeout, transport=self.transporte) as cliente:
                 r = await cliente.get(self.ENDPOINT, params=params)
         except httpx.TimeoutException:
             raise PageSpeedError(f"Google PageSpeed no respondió en {self.timeout:.0f} segundos.")

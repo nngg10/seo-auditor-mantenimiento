@@ -6,6 +6,8 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup
 
+from .seguridad_url import PoliticaURL, TransporteSeguro, URLNoPermitida, politica_por_defecto
+
 
 class ScraperError(Exception):
     """La URL no es válida, no responde o no devuelve HTML (CA-3.2)."""
@@ -13,17 +15,29 @@ class ScraperError(Exception):
 
 class WebScraper:
     USER_AGENT = "Mozilla/5.0 (compatible; SEO-PageSpeed-AI-Auditor/1.0; prototipo academico)"
+    MAX_REDIRECCIONES = 5
 
-    def __init__(self, timeout: float = 15):
+    def __init__(self, timeout: float = 15, politica: PoliticaURL = politica_por_defecto,
+                 transporte: httpx.AsyncBaseTransport | None = None):
         self.timeout = timeout
+        self.politica = politica
+        self._transporte = transporte  # solo para pruebas; por defecto se crea uno seguro por solicitud
 
     async def analizar(self, url: str) -> dict:
         inicio = time.perf_counter()
         try:
+            # HU-M01: el transporte seguro valida la URL inicial y cada redirección
+            # (CA-03) antes de conectar, y fija la IP validada.
             async with httpx.AsyncClient(
-                timeout=self.timeout, follow_redirects=True, headers={"User-Agent": self.USER_AGENT}
+                timeout=self.timeout, follow_redirects=True, max_redirects=self.MAX_REDIRECCIONES,
+                headers={"User-Agent": self.USER_AGENT},
+                transport=self._transporte or TransporteSeguro(self.politica),
             ) as cliente:
                 r = await cliente.get(url)
+        except URLNoPermitida as e:
+            raise ScraperError(str(e))
+        except httpx.TooManyRedirects:
+            raise ScraperError(f"El sitio redirige más de {self.MAX_REDIRECCIONES} veces; no se puede auditar.")
         except httpx.InvalidURL:
             raise ScraperError("La URL no tiene un formato válido.")
         except httpx.TimeoutException:

@@ -40,6 +40,48 @@ Copiar `.env.example` como `.env`:
   Si PageSpeed no responde, la auditoría continúa con el análisis On-Page e indica el motivo.
 - `GEMINI_API_KEY` u `OPENAI_API_KEY`: activa el agente IA. Sin clave (o si el servicio falla)
   las recomendaciones salen del motor de reglas local y la pantalla lo indica, con opción de reintentar.
+- `DB_PATH`: ruta de la base SQLite. Permite usar una base distinta por entorno (desarrollo, pruebas, integración).
+
+## Pruebas automatizadas
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+Las pruebas usan una base temporal y no llaman a PageSpeed ni a la IA.
+
+## Seguridad de las URL auditadas (HU-M01)
+
+El servidor solo se conecta a sitios públicos (`app/services/seguridad_url.py`):
+
+- Acepta únicamente `http`/`https`, sin usuario ni contraseña en la URL.
+- Rechaza `localhost`, IP privadas, de enlace local, compartidas, reservadas y multicast (IPv4 e IPv6),
+  y nombres de red local (`.local`, `.internal`, nombres sin dominio).
+- Resuelve el dominio por DNS y exige que **todas** sus IP sean públicas.
+- Valida también cada redirección y se conecta a la IP ya validada, lo que evita el *DNS rebinding*.
+
+## Historial filtrado por fechas (HU-M03)
+
+`GET /api/tiendas/{id}/auditorias?desde=AAAA-MM-DD&hasta=AAAA-MM-DD`
+
+- Ambos límites son opcionales e incluyen el día completo.
+- Se rechaza (422) una fecha con formato inválido o una fecha inicial posterior a la final.
+- La variación de cada auditoría se calcula contra su anterior real, aunque esa quede fuera del filtro.
+- La respuesta incluye `total` (auditorías sin filtrar) y el `filtro` aplicado.
+
+## Exportación en CSV (HU-M04)
+
+`GET /api/exportar/auditorias.csv?tienda_id=&desde=&hasta=` (todos los parámetros son opcionales).
+
+- Columnas: Tienda, URL, Fecha, Puntaje SEO, Puntaje de rendimiento, Resultado (Completo/Parcial).
+- UTF-8 con BOM y separador coma (RFC 4180): verificado abriendo el archivo en Excel.
+- Un puntaje no disponible queda como celda vacía, nunca como 0.
+- El texto que empieza por `=`, `+`, `-`, `@`, tabulador o retorno se antepone con `'` para que la
+  hoja de cálculo no lo ejecute como fórmula.
+- Solo incluye auditorías del usuario autenticado; una tienda ajena responde 404.
+- En la interfaz: "Exportar todo (CSV)" en el panel principal y "Exportar CSV" en el historial
+  (respeta el filtro de fechas activo).
 
 ## Despliegue en Render
 

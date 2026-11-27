@@ -116,6 +116,9 @@ h2 { font-size: 18px; margin: 28px 0 12px; }
 
 .pie-form { text-align: center; margin-top: 14px; color: var(--gris); font-size: 14px; }
 .chip { display: inline-block; font-size: 12px; padding: 2px 10px; border-radius: 99px; background: var(--suave); color: var(--gris); font-weight: 500; }
+.chip-ia { background: #e6eef6; color: var(--primario); font-weight: 600; }
+.chip-parcial { background: #fdf5e4; color: var(--media); font-weight: 600; margin-left: 6px; }
+.tabla td.col-estado { width: 150px; white-space: nowrap; }
 
 @media (max-width: 720px) {
   .tarjetas { grid-template-columns: 1fr; }

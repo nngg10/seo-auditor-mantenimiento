@@ -10,7 +10,8 @@ load_dotenv(BASE_DIR / ".env")
 
 DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(exist_ok=True)
-DB_PATH = DATA_DIR / "auditor.db"
+# Cada entorno (desarrollo, pruebas, integración) puede usar su propia base con DB_PATH.
+DB_PATH = Path(os.getenv("DB_PATH") or DATA_DIR / "auditor.db")
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 

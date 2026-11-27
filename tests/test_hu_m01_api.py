@@ -3,9 +3,6 @@
 Reproducen el defecto: el servidor no debe conectarse a destinos de la red local
 aunque el usuario los ingrese como URL de una auditoría.
 """
-import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-
 import pytest
 
 DESTINOS_LOCALES = [
@@ -16,31 +13,6 @@ DESTINOS_LOCALES = [
     "http://169.254.169.254/latest/meta-data/",
     "http://[::1]/",
 ]
-
-
-@pytest.fixture
-def servicio_interno():
-    """Servidor HTTP en 127.0.0.1 que simula un servicio interno y cuenta las visitas."""
-    visitas = []
-
-    class Manejador(BaseHTTPRequestHandler):
-        def do_GET(self):
-            visitas.append(self.path)
-            cuerpo = b"<html><head><title>Panel interno confidencial</title></head><body>secreto</body></html>"
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html")
-            self.send_header("Content-Length", str(len(cuerpo)))
-            self.end_headers()
-            self.wfile.write(cuerpo)
-
-        def log_message(self, *args):
-            pass
-
-    servidor = ThreadingHTTPServer(("127.0.0.1", 0), Manejador)
-    hilo = threading.Thread(target=servidor.serve_forever, daemon=True)
-    hilo.start()
-    yield f"http://127.0.0.1:{servidor.server_address[1]}/", visitas
-    servidor.shutdown()
 
 
 @pytest.fixture

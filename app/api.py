@@ -17,6 +17,7 @@ from .security import contrasenas, tokens, usuario_actual
 from .services.ai_agent import AgenteIA
 from .services.auditor import ScraperError, ServicioAuditoria
 from .services.pdf_report import GeneradorReportePDF
+from .services.seguridad_url import URLNoPermitida, politica_por_defecto
 
 
 @asynccontextmanager
@@ -44,11 +45,21 @@ def error(codigo: int, mensaje: str) -> HTTPException:
 
 
 def normalizar_url(url: str) -> str:
-    url = (url or "").strip()
+    """HU-M01: valida formato y rechaza destinos locales sin consultar DNS."""
+    try:
+        url = politica_por_defecto.validar_formato(url)
+    except URLNoPermitida as e:
+        raise error(422, str(e))
     p = urlparse(url)
-    if p.scheme not in ("http", "https") or not p.netloc or ("." not in p.netloc and "localhost" not in p.netloc):
-        raise error(422, "La URL no es válida. Debe empezar por http:// o https:// (ej. https://mitienda.com).")
     return url.rstrip("/") if p.path in ("", "/") and not p.query else url
+
+
+async def validar_destino(url: str) -> None:
+    """HU-M01: validación completa (incluye DNS) antes de que el servidor se conecte."""
+    try:
+        await politica_por_defecto.validar(url)
+    except URLNoPermitida as e:
+        raise error(422, f"No se pudo auditar la URL: {e}")
 
 
 # ------------------------------------------------------------------ Esquemas
@@ -182,6 +193,7 @@ async def ejecutar_auditoria(datos: AuditoriaIn, usuario: Usuario = Depends(usua
     if not tienda:
         raise error(404, "Tienda no encontrada.")
     url = normalizar_url(datos.url or tienda.url)
+    await validar_destino(url)
     try:
         resultado = await servicio_auditoria.ejecutar(url)
     except ScraperError as e:

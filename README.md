@@ -40,6 +40,26 @@ Copiar `.env.example` como `.env`:
   Si PageSpeed no responde, la auditoría continúa con el análisis On-Page e indica el motivo.
 - `GEMINI_API_KEY` u `OPENAI_API_KEY`: activa el agente IA. Sin clave (o si el servicio falla)
   las recomendaciones salen del motor de reglas local y la pantalla lo indica, con opción de reintentar.
+- `DB_PATH`: ruta de la base SQLite. Permite usar una base distinta por entorno (desarrollo, pruebas, integración).
+
+## Pruebas automatizadas
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```
+
+Las pruebas usan una base temporal y no llaman a PageSpeed ni a la IA.
+
+## Seguridad de las URL auditadas (HU-M01)
+
+El servidor solo se conecta a sitios públicos (`app/services/seguridad_url.py`):
+
+- Acepta únicamente `http`/`https`, sin usuario ni contraseña en la URL.
+- Rechaza `localhost`, IP privadas, de enlace local, compartidas, reservadas y multicast (IPv4 e IPv6),
+  y nombres de red local (`.local`, `.internal`, nombres sin dominio).
+- Resuelve el dominio por DNS y exige que **todas** sus IP sean públicas.
+- Valida también cada redirección y se conecta a la IP ya validada, lo que evita el *DNS rebinding*.
 
 ## Despliegue en Render
 

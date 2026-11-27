@@ -70,6 +70,19 @@ El servidor solo se conecta a sitios públicos (`app/services/seguridad_url.py`)
 - La variación de cada auditoría se calcula contra su anterior real, aunque esa quede fuera del filtro.
 - La respuesta incluye `total` (auditorías sin filtrar) y el `filtro` aplicado.
 
+## Exportación en CSV (HU-M04)
+
+`GET /api/exportar/auditorias.csv?tienda_id=&desde=&hasta=` (todos los parámetros son opcionales).
+
+- Columnas: Tienda, URL, Fecha, Puntaje SEO, Puntaje de rendimiento, Resultado (Completo/Parcial).
+- UTF-8 con BOM y separador coma (RFC 4180): verificado abriendo el archivo en Excel.
+- Un puntaje no disponible queda como celda vacía, nunca como 0.
+- El texto que empieza por `=`, `+`, `-`, `@`, tabulador o retorno se antepone con `'` para que la
+  hoja de cálculo no lo ejecute como fórmula.
+- Solo incluye auditorías del usuario autenticado; una tienda ajena responde 404.
+- En la interfaz: "Exportar todo (CSV)" en el panel principal y "Exportar CSV" en el historial
+  (respeta el filtro de fechas activo).
+
 ## Despliegue en Render
 
 - Build: `pip install -r requirements.txt`

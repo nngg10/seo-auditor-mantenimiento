@@ -241,6 +241,26 @@ class AuditoriaRepositorio:
             ).fetchone()
         return Auditoria.desde_fila(f) if f else None
 
+    def listar_por_usuario(self, usuario_id: int, tienda_id: Optional[int] = None,
+                           desde: Optional[date] = None, hasta: Optional[date] = None) -> list[tuple[Auditoria, str]]:
+        """HU-M04: auditorías de TODAS las tiendas del usuario (o de una), con el nombre de la tienda.
+        La unión con `tiendas.usuario_id` garantiza que nunca se incluyan datos de otra cuenta."""
+        sql = ("SELECT a.*, t.nombre AS tienda_nombre FROM auditorias a JOIN tiendas t ON t.id = a.tienda_id "
+               "WHERE t.usuario_id = ?")
+        params: list = [usuario_id]
+        if tienda_id is not None:
+            sql += " AND t.id = ?"
+            params.append(tienda_id)
+        if desde is not None:
+            sql += " AND date(a.fecha) >= ?"
+            params.append(desde.isoformat())
+        if hasta is not None:
+            sql += " AND date(a.fecha) <= ?"
+            params.append(hasta.isoformat())
+        with self.db.sesion() as c:
+            filas = c.execute(sql + " ORDER BY a.fecha DESC, a.id DESC", params).fetchall()
+        return [(Auditoria.desde_fila(f), f["tienda_nombre"]) for f in filas]
+
     def listar_por_tienda(self, tienda_id: int, desde: Optional[date] = None,
                           hasta: Optional[date] = None) -> list[Auditoria]:
         """Auditorías de la tienda, de la más reciente a la más antigua.

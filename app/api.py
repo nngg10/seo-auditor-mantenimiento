@@ -1,5 +1,6 @@
 """API REST (FastAPI) y servidor de la interfaz web."""
 import re
+import unicodedata
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from typing import Optional
@@ -17,6 +18,7 @@ from .models import AuditoriaRepositorio, TiendaRepositorio, Usuario, UsuarioRep
 from .security import contrasenas, tokens, usuario_actual
 from .services.ai_agent import AgenteIA
 from .services.auditor import ScraperError, ServicioAuditoria
+from .services.exportador_csv import ExportadorCSV
 from .services.pdf_report import GeneradorReportePDF
 from .services.seguridad_url import URLNoPermitida, politica_por_defecto
 
@@ -37,6 +39,7 @@ tiendas = TiendaRepositorio(db)
 auditorias = AuditoriaRepositorio(db)
 servicio_auditoria = ServicioAuditoria()
 generador_pdf = GeneradorReportePDF()
+exportador_csv = ExportadorCSV()
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -263,6 +266,27 @@ def exportar_pdf(auditoria_id: int, usuario: Usuario = Depends(usuario_actual)):
     contenido = generador_pdf.generar(a, tiendas.obtener(usuario.id, a.tienda_id))
     return Response(contenido, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="Reporte-{a.codigo}.pdf"'})
+
+
+# ------------------------------------------------------ HU-M04 Exportar CSV
+@app.get("/api/exportar/auditorias.csv")
+def exportar_csv(tienda_id: Optional[int] = None, desde: Optional[str] = None, hasta: Optional[str] = None,
+                 usuario: Usuario = Depends(usuario_actual)):
+    tienda = None
+    if tienda_id is not None:
+        tienda = tiendas.obtener(usuario.id, tienda_id)
+        if not tienda:
+            raise error(404, "Tienda no encontrada.")
+    f_desde, f_hasta = _fecha_filtro(desde), _fecha_filtro(hasta)
+    if f_desde and f_hasta and f_desde > f_hasta:
+        raise error(422, "La fecha inicial no puede ser posterior a la fecha final.")
+    filas = auditorias.listar_por_usuario(usuario.id, tienda_id, f_desde, f_hasta)
+    # Nombre de archivo ASCII legible: "Zapatería El Ñandú" -> "zapateria-el-nandu"
+    ascii_ = unicodedata.normalize("NFKD", tienda.nombre if tienda else "todas").encode("ascii", "ignore").decode()
+    base = re.sub(r"[^a-z0-9]+", "-", ascii_.lower()).strip("-")
+    nombre = f"auditorias-{base or 'tienda'}-{datetime.now():%Y%m%d}.csv"
+    return Response(exportador_csv.generar(filas), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
 
 
 @app.get("/api/salud", include_in_schema=False)

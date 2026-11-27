@@ -99,6 +99,22 @@ function fmtFecha(f) {
     " " + d.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
 }
 
+// Descarga un archivo de la API con el token de sesión (PDF y CSV). Usa el nombre que
+// propone el servidor en Content-Disposition y, si no hay, el nombre por defecto.
+async function descargar(boton, ruta, nombrePorDefecto, zonaMensajes = document.getElementById("msg")) {
+  boton.disabled = true;
+  try {
+    const r = await api("GET", ruta);
+    const propuesto = /filename="([^"]+)"/.exec(r.headers.get("content-disposition") || "");
+    const url = URL.createObjectURL(await r.blob());
+    const enlace = Object.assign(document.createElement("a"), { href: url, download: propuesto ? propuesto[1] : nombrePorDefecto });
+    document.body.appendChild(enlace); enlace.click(); enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  } catch (e) {
+    if (!(e instanceof SesionExpirada) && zonaMensajes) zonaMensajes.innerHTML = alerta("error", e.message);
+  } finally { boton.disabled = false; }
+}
+
 function enviarForm(form, manejador) {
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
@@ -198,12 +214,16 @@ const Vistas = {
       <div class="panel">
         <div class="panel-cab">Mis tiendas registradas (${lista.length})
           <span class="acciones"><a class="btn btn-sec btn-peq" href="#/tiendas">Gestionar tiendas</a>
-          ${lista.length ? `<a class="btn btn-peq" href="#/auditar">+ Nueva auditoría</a>` : ""}</span>
+          ${lista.length ? `<button class="btn btn-sec btn-peq" id="csv-todo">Exportar todo (CSV)</button>
+          <a class="btn btn-peq" href="#/auditar">+ Nueva auditoría</a>` : ""}</span>
         </div>
         ${lista.length ? `<ul class="lista">${filas}</ul>` : `
           <div class="vacio"><p>Aún no tienes tiendas registradas.</p>
           <a class="btn" href="#/tiendas">Registrar mi primera tienda</a></div>`}
-      </div>`;
+      </div>
+      <div class="mensajes" id="msg" style="margin-top:14px"></div>`;
+    const csvTodo = document.getElementById("csv-todo");
+    if (csvTodo) csvTodo.onclick = (ev) => descargar(ev.target, "/exportar/auditorias.csv", "auditorias.csv");
   },
 
   // HU-05
@@ -391,18 +411,7 @@ const Vistas = {
       <h2>Datos técnicos extraídos</h2>
       <div class="panel"><table class="tabla">${filasTec.map(([k, val]) => `<tr><th>${esc(k)}</th><td>${esc(val)}</td></tr>`).join("")}</table></div>`;
 
-    document.getElementById("pdf").onclick = async (ev) => {
-      ev.target.disabled = true;
-      try {
-        const r = await api("GET", `/auditorias/${a.id}/pdf`);
-        const url = URL.createObjectURL(await r.blob());
-        const enlace = Object.assign(document.createElement("a"), { href: url, download: `Reporte-${a.codigo}.pdf` });
-        document.body.appendChild(enlace); enlace.click(); enlace.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 2000);
-      } catch (e) {
-        if (!(e instanceof SesionExpirada)) document.getElementById("msg").innerHTML = alerta("error", e.message);
-      } finally { ev.target.disabled = false; }
-    };
+    document.getElementById("pdf").onclick = (ev) => descargar(ev.target, `/auditorias/${a.id}/pdf`, `Reporte-${a.codigo}.pdf`);
 
     const reintentar = document.getElementById("reintentar");
     if (reintentar) reintentar.onclick = async () => {
@@ -466,9 +475,21 @@ const Vistas = {
       <div class="panel">
         <div class="panel-cab">Auditorías (${filtrado ? `${auditorias.length} de ${total}` : auditorias.length})
           ${filtrado ? `<small>${esc(rango)}</small>` : ""}
-          <a class="btn btn-peq" href="#/auditar/${tienda.id}">+ Nueva auditoría</a></div>
+          <span class="acciones">
+            ${auditorias.length ? `<button class="btn btn-sec btn-peq" id="csv">Exportar CSV</button>` : ""}
+            <a class="btn btn-peq" href="#/auditar/${tienda.id}">+ Nueva auditoría</a></span></div>
         ${auditorias.length ? `<ul class="lista">${filas}</ul>` : vacio}
       </div>`;
+
+    // HU-M04: exporta exactamente lo que muestra el historial (misma tienda y mismo filtro)
+    const botonCsv = document.getElementById("csv");
+    if (botonCsv) {
+      const q = new URLSearchParams({ tienda_id: tienda.id });
+      if (filtro.desde) q.set("desde", filtro.desde);
+      if (filtro.hasta) q.set("hasta", filtro.hasta);
+      botonCsv.onclick = (ev) => descargar(ev.target, `/exportar/auditorias.csv?${q}`, "auditorias.csv",
+        document.querySelector("#filtro .mensajes"));
+    }
 
     document.getElementById("filtro").addEventListener("submit", (ev) => {
       ev.preventDefault();

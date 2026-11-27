@@ -32,7 +32,7 @@ async def ciclo_de_vida(_app):
     await keep_alive.detener()
 
 
-app = FastAPI(title="Auditor SEO & PageSpeed AI", version="1.0.0", lifespan=ciclo_de_vida)
+app = FastAPI(title="Auditor SEO & PageSpeed AI", version="1.1.0", lifespan=ciclo_de_vida)
 
 usuarios = UsuarioRepositorio(db)
 tiendas = TiendaRepositorio(db)

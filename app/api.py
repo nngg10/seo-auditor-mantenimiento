@@ -1,6 +1,7 @@
 """API REST (FastAPI) y servidor de la interfaz web."""
 import re
 from contextlib import asynccontextmanager
+from datetime import date, datetime
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -163,19 +164,46 @@ def eliminar_tienda(tienda_id: int, usuario: Usuario = Depends(usuario_actual)):
 
 
 # ----------------------------------------------------------- HU-06 Historial
+FECHA_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _fecha_filtro(valor: Optional[str]) -> Optional[date]:
+    """HU-M03: convierte un parámetro AAAA-MM-DD; vacío equivale a sin límite."""
+    if valor is None or not valor.strip():
+        return None
+    valor = valor.strip()
+    try:
+        if not FECHA_RE.match(valor):
+            raise ValueError
+        return datetime.strptime(valor, "%Y-%m-%d").date()
+    except ValueError:
+        raise error(422, f"La fecha «{valor}» no es válida. Usa el formato AAAA-MM-DD.")
+
+
 @app.get("/api/tiendas/{tienda_id}/auditorias")
-def historial(tienda_id: int, usuario: Usuario = Depends(usuario_actual)):
+def historial(tienda_id: int, desde: Optional[str] = None, hasta: Optional[str] = None,
+              usuario: Usuario = Depends(usuario_actual)):
     tienda = tiendas.obtener(usuario.id, tienda_id)
     if not tienda:
         raise error(404, "Tienda no encontrada.")
-    lista = auditorias.listar_por_tienda(tienda_id)
-    salida = []
-    for i, a in enumerate(lista):
-        d = a.resumen()
-        previa = lista[i + 1] if i + 1 < len(lista) else None
-        d["variacion"] = _variacion(a, previa)
-        salida.append(d)
-    return {"tienda": tienda.a_dict(), "auditorias": salida}
+    f_desde, f_hasta = _fecha_filtro(desde), _fecha_filtro(hasta)
+    if f_desde and f_hasta and f_desde > f_hasta:
+        raise error(422, "La fecha inicial no puede ser posterior a la fecha final.")
+
+    # La variación se calcula sobre el historial completo, para que cada auditoría se compare
+    # con su anterior real aunque esa quede fuera del filtro.
+    completo = auditorias.listar_por_tienda(tienda_id)
+    variaciones = {a.id: _variacion(a, completo[i + 1] if i + 1 < len(completo) else None)
+                   for i, a in enumerate(completo)}
+    filtradas = auditorias.listar_por_tienda(tienda_id, f_desde, f_hasta) if (f_desde or f_hasta) else completo
+    salida = [{**a.resumen(), "variacion": variaciones[a.id]} for a in filtradas]
+    return {
+        "tienda": tienda.a_dict(),
+        "auditorias": salida,
+        "total": len(completo),
+        "filtro": {"desde": f_desde.isoformat() if f_desde else None,
+                   "hasta": f_hasta.isoformat() if f_hasta else None},
+    }
 
 
 def _variacion(a, previa) -> Optional[dict]:

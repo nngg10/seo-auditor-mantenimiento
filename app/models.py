@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Optional
 
 from .database import BaseDeDatos
+from .services.ai_agent import FUENTE_REGLAS
 
 
 # ----------------------------------------------------------------- Entidades
@@ -67,14 +68,51 @@ class Auditoria:
             ia_fuente=f["ia_fuente"] or "", ia_aviso=f["ia_aviso"], ia_fallo=bool(f["ia_fallo"]),
         )
 
+    # ------------------------------------------------- HU-M02: estado de servicios
+    def estado_servicios(self) -> dict:
+        """Estado de cada servicio, derivado de los datos ya guardados (sirve también
+        para auditorías anteriores a HU-M02, sin migrar la base de datos).
+
+        Estados: ok | fallo | incompleto (PageSpeed) y ok | respaldo | sin_configurar (IA).
+        """
+        tiempo = self.scraper.get("tiempo_respuesta_ms")
+        html = {"estado": "ok", "detalle": f"HTTP {self.http_status}" + (f" en {tiempo} ms" if tiempo is not None else "")}
+
+        if self.pagespeed_error:
+            pagespeed = {"estado": "fallo", "detalle": self.pagespeed_error}
+        elif self.rendimiento is None:
+            pagespeed = {"estado": "incompleto", "detalle": "Google respondió sin puntaje de rendimiento."}
+        else:
+            pagespeed = {"estado": "ok", "detalle": f"Rendimiento móvil {self.rendimiento}/100"}
+
+        if self.ia_fallo:
+            ia = {"estado": "respaldo", "detalle": self.ia_aviso or "El servicio de IA no respondió; se usó el motor de reglas local."}
+        elif self.ia_fuente == FUENTE_REGLAS:
+            ia = {"estado": "sin_configurar",
+                  "detalle": "No hay una API key de IA configurada; el plan se generó con el motor de reglas local."}
+        else:
+            ia = {"estado": "ok", "detalle": f"Plan generado por {self.ia_fuente}"}
+        return {"html": html, "pagespeed": pagespeed, "ia": ia}
+
+    @property
+    def parcial(self) -> bool:
+        """True si algún servicio configurado falló o respondió incompleto.
+        La IA sin configurar es un modo de funcionamiento elegido, no un fallo."""
+        s = self.estado_servicios()
+        return s["pagespeed"]["estado"] != "ok" or s["ia"]["estado"] == "respaldo"
+
     def resumen(self) -> dict:
         return {
             "id": self.id, "codigo": self.codigo, "url": self.url, "fecha": self.fecha,
             "rendimiento": self.rendimiento, "seo": self.seo, "lcp_s": self.lcp_s,
+            "parcial": self.parcial,
         }
 
     def a_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        d["servicios"] = self.estado_servicios()
+        d["parcial"] = self.parcial
+        return d
 
 
 # -------------------------------------------------------------- Repositorios

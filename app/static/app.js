@@ -68,6 +68,22 @@ function estadoLcp(v) {
 }
 const chipEstado = ([texto, clase]) => `<span class="estado estado-${clase}">${texto}</span>`;
 
+// HU-M02: estado de cada servicio externo
+const ESTADOS_SERVICIO = {
+  ok: ["Respondió", "bueno"], fallo: ["Falló", "critico"], incompleto: ["Incompleto", "mejora"],
+  respaldo: ["Respaldo local", "mejora"], sin_configurar: ["Sin configurar", "nd"],
+};
+const NOMBRES_SERVICIO = { html: "Análisis HTML", pagespeed: "Google PageSpeed", ia: "Diagnóstico IA" };
+
+function panelServicios(servicios) {
+  const filas = Object.entries(NOMBRES_SERVICIO).map(([clave, nombre]) => {
+    const s = servicios[clave];
+    return `<tr><th>${nombre}</th><td class="col-estado">${chipEstado(ESTADOS_SERVICIO[s.estado])}</td><td>${esc(s.detalle)}</td></tr>`;
+  }).join("");
+  return `<div class="panel" style="margin-bottom:14px"><div class="panel-cab">Estado de los servicios</div>
+    <table class="tabla">${filas}</table></div>`;
+}
+
 function fmtVar(n) {
   if (n === null || n === undefined) return "—";
   if (n > 0) return `<span class="var-pos">+${n}</span>`;
@@ -348,7 +364,7 @@ const Vistas = {
       ${recien ? alerta("ok", `✓ Análisis completado con éxito en ${a.duracion_s} segundos. Estado HTTP: ${a.http_status} OK.`) : ""}
       <div class="meta-linea"><span>Fecha: ${fmtFecha(a.fecha)}</span><span>Duración: ${a.duracion_s}s</span><span>HTTP ${a.http_status}</span>
         ${v ? `<span>Frente a #${esc(v.codigo_anterior)}: rendimiento ${fmtVar(v.rendimiento)} · SEO ${fmtVar(v.seo)}</span>` : ""}</div>
-      ${a.pagespeed_error ? alerta("aviso", "Métricas de velocidad no disponibles: " + a.pagespeed_error) : ""}
+      ${a.parcial ? alerta("aviso", "Resultado parcial: uno o más servicios externos no respondieron. Las métricas marcadas como N/D no están disponibles y no equivalen a cero.") : ""}
       <div class="tarjetas">
         <div class="tarjeta"><div class="t">Rendimiento Mobile</div>
           <div class="v">${a.rendimiento ?? "N/D"}${a.rendimiento != null ? " <small>/ 100</small>" : ""}</div>${chipEstado(estadoPuntaje(a.rendimiento))}</div>
@@ -357,6 +373,7 @@ const Vistas = {
         <div class="tarjeta"><div class="t">Core Web Vitals (LCP)</div>
           <div class="v">${a.lcp_s != null ? a.lcp_s + "s" : "N/D"}</div>${chipEstado(estadoLcp(a.lcp_s))}</div>
       </div>
+      ${panelServicios(a.servicios)}
       <div class="acciones" style="margin-bottom:18px">
         <button class="btn" id="pdf">Exportar PDF</button>
         <a class="btn btn-sec" href="#/historial/${a.tienda_id}">Ver historial de la tienda</a>
@@ -366,7 +383,9 @@ const Vistas = {
       ${a.ia_aviso ? `<div class="alerta alerta-aviso">${esc(a.ia_aviso)}
         ${a.ia_fallo ? ` <button class="btn btn-sec btn-peq" id="reintentar">Reintentar diagnóstico IA</button>` : ""}</div>` : ""}
       <div class="panel">
-        <div class="panel-cab">Plan de acción <small>Generado por: ${esc(a.ia_fuente)}</small></div>
+        <div class="panel-cab">Plan de acción
+          <small>${a.servicios.ia.estado === "ok" ? '<span class="chip chip-ia">IA</span>' : '<span class="chip">Reglas locales</span>'}
+          Generado por: ${esc(a.ia_fuente)}</small></div>
         ${recs}
       </div>
       <h2>Datos técnicos extraídos</h2>
@@ -400,6 +419,7 @@ const Vistas = {
     const filas = auditorias.map((a) => `
       <li>
         <div class="info"><strong>#${esc(a.codigo)} · ${fmtFecha(a.fecha)}</strong>
+          ${a.parcial ? '<span class="chip chip-parcial">Resultado parcial</span>' : ""}
           <span>Rendimiento ${a.rendimiento ?? "N/D"} · SEO ${a.seo} · ${esc(a.url)}</span>
           ${a.variacion ? `<br><span>Variación frente a la anterior: Rendimiento ${fmtVar(a.variacion.rendimiento)} · SEO ${fmtVar(a.variacion.seo)}</span>` : ""}
         </div>

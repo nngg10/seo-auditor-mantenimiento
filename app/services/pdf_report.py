@@ -40,7 +40,34 @@ class ReportePDF(FPDF):
         self.cell(0, 10, _t(f"Página {self.page_no()}"), align="C")
 
 
+ETIQUETAS_ESTADO = {"ok": "Respondió", "fallo": "Falló", "incompleto": "Incompleto",
+                    "respaldo": "Respaldo local", "sin_configurar": "Sin configurar"}
+NOMBRES_SERVICIO = {"html": "Análisis HTML", "pagespeed": "Google PageSpeed", "ia": "Diagnóstico IA"}
+
+
 class GeneradorReportePDF:
+    @staticmethod
+    def _estado_servicios(pdf: FPDF, a: Auditoria) -> None:
+        """HU-M02 (CA-04): el PDF conserva qué servicios fallaron y por qué."""
+        if a.parcial:
+            pdf.set_fill_color(253, 245, 228)
+            pdf.set_text_color(122, 82, 0)
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.multi_cell(0, 6, _t("Resultado parcial: uno o más servicios externos no respondieron. "
+                                    "Las métricas marcadas como N/D no están disponibles y no equivalen a cero."),
+                           fill=True, new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(2)
+        pdf.set_text_color(20, 20, 20)
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(0, 7, _t("Estado de los servicios"), new_x="LMARGIN", new_y="NEXT")
+        for clave, servicio in a.estado_servicios().items():
+            pdf.set_font("Helvetica", "B", 9)
+            pdf.cell(38, 5, _t(NOMBRES_SERVICIO[clave]))
+            pdf.cell(30, 5, _t(ETIQUETAS_ESTADO[servicio["estado"]]))
+            pdf.set_font("Helvetica", "", 9)
+            pdf.multi_cell(0, 5, _t(servicio["detalle"]), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(3)
+
     def generar(self, a: Auditoria, tienda: Tienda) -> bytes:
         pdf = ReportePDF()
         pdf.set_auto_page_break(True, margin=18)
@@ -78,12 +105,7 @@ class GeneradorReportePDF:
             pdf.cell(ancho - 6, 5, _t(estado))
         pdf.set_xy(pdf.l_margin, y + 30)
 
-        if a.pagespeed_error:
-            pdf.set_font("Helvetica", "I", 9)
-            pdf.set_text_color(160, 60, 40)
-            pdf.multi_cell(0, 5, _t(f"Métricas de velocidad no disponibles: {a.pagespeed_error}"), new_x="LMARGIN", new_y="NEXT")
-            pdf.set_text_color(20, 20, 20)
-            pdf.ln(2)
+        self._estado_servicios(pdf, a)
 
         # Plan de acción
         pdf.set_font("Helvetica", "B", 13)

@@ -68,6 +68,22 @@ function estadoLcp(v) {
 }
 const chipEstado = ([texto, clase]) => `<span class="estado estado-${clase}">${texto}</span>`;
 
+// HU-M02: estado de cada servicio externo
+const ESTADOS_SERVICIO = {
+  ok: ["Respondió", "bueno"], fallo: ["Falló", "critico"], incompleto: ["Incompleto", "mejora"],
+  respaldo: ["Respaldo local", "mejora"], sin_configurar: ["Sin configurar", "nd"],
+};
+const NOMBRES_SERVICIO = { html: "Análisis HTML", pagespeed: "Google PageSpeed", ia: "Diagnóstico IA" };
+
+function panelServicios(servicios) {
+  const filas = Object.entries(NOMBRES_SERVICIO).map(([clave, nombre]) => {
+    const s = servicios[clave];
+    return `<tr><th>${nombre}</th><td class="col-estado">${chipEstado(ESTADOS_SERVICIO[s.estado])}</td><td>${esc(s.detalle)}</td></tr>`;
+  }).join("");
+  return `<div class="panel" style="margin-bottom:14px"><div class="panel-cab">Estado de los servicios</div>
+    <table class="tabla">${filas}</table></div>`;
+}
+
 function fmtVar(n) {
   if (n === null || n === undefined) return "—";
   if (n > 0) return `<span class="var-pos">+${n}</span>`;
@@ -81,6 +97,22 @@ function fmtFecha(f) {
   if (isNaN(d)) return f;
   return d.toLocaleDateString("es-CO", { day: "2-digit", month: "2-digit", year: "numeric" }) +
     " " + d.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+}
+
+// Descarga un archivo de la API con el token de sesión (PDF y CSV). Usa el nombre que
+// propone el servidor en Content-Disposition y, si no hay, el nombre por defecto.
+async function descargar(boton, ruta, nombrePorDefecto, zonaMensajes = document.getElementById("msg")) {
+  boton.disabled = true;
+  try {
+    const r = await api("GET", ruta);
+    const propuesto = /filename="([^"]+)"/.exec(r.headers.get("content-disposition") || "");
+    const url = URL.createObjectURL(await r.blob());
+    const enlace = Object.assign(document.createElement("a"), { href: url, download: propuesto ? propuesto[1] : nombrePorDefecto });
+    document.body.appendChild(enlace); enlace.click(); enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  } catch (e) {
+    if (!(e instanceof SesionExpirada) && zonaMensajes) zonaMensajes.innerHTML = alerta("error", e.message);
+  } finally { boton.disabled = false; }
 }
 
 function enviarForm(form, manejador) {
@@ -182,12 +214,16 @@ const Vistas = {
       <div class="panel">
         <div class="panel-cab">Mis tiendas registradas (${lista.length})
           <span class="acciones"><a class="btn btn-sec btn-peq" href="#/tiendas">Gestionar tiendas</a>
-          ${lista.length ? `<a class="btn btn-peq" href="#/auditar">+ Nueva auditoría</a>` : ""}</span>
+          ${lista.length ? `<button class="btn btn-sec btn-peq" id="csv-todo">Exportar todo (CSV)</button>
+          <a class="btn btn-peq" href="#/auditar">+ Nueva auditoría</a>` : ""}</span>
         </div>
         ${lista.length ? `<ul class="lista">${filas}</ul>` : `
           <div class="vacio"><p>Aún no tienes tiendas registradas.</p>
           <a class="btn" href="#/tiendas">Registrar mi primera tienda</a></div>`}
-      </div>`;
+      </div>
+      <div class="mensajes" id="msg" style="margin-top:14px"></div>`;
+    const csvTodo = document.getElementById("csv-todo");
+    if (csvTodo) csvTodo.onclick = (ev) => descargar(ev.target, "/exportar/auditorias.csv", "auditorias.csv");
   },
 
   // HU-05
@@ -348,7 +384,7 @@ const Vistas = {
       ${recien ? alerta("ok", `✓ Análisis completado con éxito en ${a.duracion_s} segundos. Estado HTTP: ${a.http_status} OK.`) : ""}
       <div class="meta-linea"><span>Fecha: ${fmtFecha(a.fecha)}</span><span>Duración: ${a.duracion_s}s</span><span>HTTP ${a.http_status}</span>
         ${v ? `<span>Frente a #${esc(v.codigo_anterior)}: rendimiento ${fmtVar(v.rendimiento)} · SEO ${fmtVar(v.seo)}</span>` : ""}</div>
-      ${a.pagespeed_error ? alerta("aviso", "Métricas de velocidad no disponibles: " + a.pagespeed_error) : ""}
+      ${a.parcial ? alerta("aviso", "Resultado parcial: uno o más servicios externos no respondieron. Las métricas marcadas como N/D no están disponibles y no equivalen a cero.") : ""}
       <div class="tarjetas">
         <div class="tarjeta"><div class="t">Rendimiento Mobile</div>
           <div class="v">${a.rendimiento ?? "N/D"}${a.rendimiento != null ? " <small>/ 100</small>" : ""}</div>${chipEstado(estadoPuntaje(a.rendimiento))}</div>
@@ -357,6 +393,7 @@ const Vistas = {
         <div class="tarjeta"><div class="t">Core Web Vitals (LCP)</div>
           <div class="v">${a.lcp_s != null ? a.lcp_s + "s" : "N/D"}</div>${chipEstado(estadoLcp(a.lcp_s))}</div>
       </div>
+      ${panelServicios(a.servicios)}
       <div class="acciones" style="margin-bottom:18px">
         <button class="btn" id="pdf">Exportar PDF</button>
         <a class="btn btn-sec" href="#/historial/${a.tienda_id}">Ver historial de la tienda</a>
@@ -366,24 +403,15 @@ const Vistas = {
       ${a.ia_aviso ? `<div class="alerta alerta-aviso">${esc(a.ia_aviso)}
         ${a.ia_fallo ? ` <button class="btn btn-sec btn-peq" id="reintentar">Reintentar diagnóstico IA</button>` : ""}</div>` : ""}
       <div class="panel">
-        <div class="panel-cab">Plan de acción <small>Generado por: ${esc(a.ia_fuente)}</small></div>
+        <div class="panel-cab">Plan de acción
+          <small>${a.servicios.ia.estado === "ok" ? '<span class="chip chip-ia">IA</span>' : '<span class="chip">Reglas locales</span>'}
+          Generado por: ${esc(a.ia_fuente)}</small></div>
         ${recs}
       </div>
       <h2>Datos técnicos extraídos</h2>
       <div class="panel"><table class="tabla">${filasTec.map(([k, val]) => `<tr><th>${esc(k)}</th><td>${esc(val)}</td></tr>`).join("")}</table></div>`;
 
-    document.getElementById("pdf").onclick = async (ev) => {
-      ev.target.disabled = true;
-      try {
-        const r = await api("GET", `/auditorias/${a.id}/pdf`);
-        const url = URL.createObjectURL(await r.blob());
-        const enlace = Object.assign(document.createElement("a"), { href: url, download: `Reporte-${a.codigo}.pdf` });
-        document.body.appendChild(enlace); enlace.click(); enlace.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 2000);
-      } catch (e) {
-        if (!(e instanceof SesionExpirada)) document.getElementById("msg").innerHTML = alerta("error", e.message);
-      } finally { ev.target.disabled = false; }
-    };
+    document.getElementById("pdf").onclick = (ev) => descargar(ev.target, `/auditorias/${a.id}/pdf`, `Reporte-${a.codigo}.pdf`);
 
     const reintentar = document.getElementById("reintentar");
     if (reintentar) reintentar.onclick = async () => {
@@ -394,25 +422,86 @@ const Vistas = {
     };
   },
 
-  // HU-06
-  async historial(tiendaId) {
-    const { tienda, auditorias } = await api("GET", `/tiendas/${tiendaId}/auditorias`);
+  // HU-06 + HU-M03 (filtro por intervalo de fechas)
+  async historial(tiendaId, consulta = new URLSearchParams()) {
+    const pedido = new URLSearchParams();
+    for (const k of ["desde", "hasta"]) if (consulta.get(k)) pedido.set(k, consulta.get(k));
+    let datos, errorFiltro = "";
+    try {
+      datos = await api("GET", `/tiendas/${tiendaId}/auditorias${pedido.toString() ? "?" + pedido : ""}`);
+    } catch (e) {
+      if (e instanceof SesionExpirada || !pedido.toString()) throw e;
+      errorFiltro = e.message;                       // filtro inválido: se muestra sin filtrar
+      datos = await api("GET", `/tiendas/${tiendaId}/auditorias`);
+    }
+    const { tienda, auditorias, total } = datos;
+    const filtro = errorFiltro ? { desde: null, hasta: null } : datos.filtro;
+    const filtrado = !!(filtro.desde || filtro.hasta);
+    const fmtDia = (d) => d.split("-").reverse().join("/");
+    const rango = [filtro.desde && `desde el ${fmtDia(filtro.desde)}`, filtro.hasta && `hasta el ${fmtDia(filtro.hasta)}`]
+      .filter(Boolean).join(" ");
+
     const filas = auditorias.map((a) => `
       <li>
         <div class="info"><strong>#${esc(a.codigo)} · ${fmtFecha(a.fecha)}</strong>
+          ${a.parcial ? '<span class="chip chip-parcial">Resultado parcial</span>' : ""}
           <span>Rendimiento ${a.rendimiento ?? "N/D"} · SEO ${a.seo} · ${esc(a.url)}</span>
           ${a.variacion ? `<br><span>Variación frente a la anterior: Rendimiento ${fmtVar(a.variacion.rendimiento)} · SEO ${fmtVar(a.variacion.seo)}</span>` : ""}
         </div>
         <div class="acciones"><a class="btn btn-sec btn-peq" href="#/auditoria/${a.id}">Ver detalle</a></div>
       </li>`).join("");
+    const vacio = filtrado
+      ? `<div class="vacio"><p>No hay auditorías ${esc(rango)}.</p>
+           <a class="btn btn-sec" href="#/historial/${tienda.id}">Limpiar filtro</a></div>`
+      : `<div class="vacio"><p>Aún no hay auditorías para esta tienda.</p><a class="btn" href="#/auditar/${tienda.id}">+ Nueva auditoría</a></div>`;
+
     $app.innerHTML = `
       <h1>Historial de auditorías</h1>
       <p class="sub">Tienda: ${esc(tienda.nombre)} · ${esc(tienda.url)}</p>
+      <div class="panel" style="margin-bottom:14px">
+        <div class="panel-cab">Filtrar por fecha</div>
+        <form class="panel-cuerpo" id="filtro">
+          <div class="mensajes">${errorFiltro ? alerta("error", errorFiltro) : ""}</div>
+          <div class="fila">
+            <div class="campo"><label>Fecha inicial</label><input type="date" name="desde" value="${esc(filtro.desde || "")}"></div>
+            <div class="campo"><label>Fecha final</label><input type="date" name="hasta" value="${esc(filtro.hasta || "")}"></div>
+            <div class="campo acciones" style="flex:0 0 auto">
+              <button class="btn" type="submit">Filtrar</button>
+              ${filtrado ? `<a class="btn btn-sec" href="#/historial/${tienda.id}">Limpiar filtro</a>` : ""}
+            </div>
+          </div>
+        </form>
+      </div>
       <div class="panel">
-        <div class="panel-cab">Auditorías (${auditorias.length}) <a class="btn btn-peq" href="#/auditar/${tienda.id}">+ Nueva auditoría</a></div>
-        ${auditorias.length ? `<ul class="lista">${filas}</ul>` :
-          `<div class="vacio"><p>Aún no hay auditorías para esta tienda.</p><a class="btn" href="#/auditar/${tienda.id}">+ Nueva auditoría</a></div>`}
+        <div class="panel-cab">Auditorías (${filtrado ? `${auditorias.length} de ${total}` : auditorias.length})
+          ${filtrado ? `<small>${esc(rango)}</small>` : ""}
+          <span class="acciones">
+            ${auditorias.length ? `<button class="btn btn-sec btn-peq" id="csv">Exportar CSV</button>` : ""}
+            <a class="btn btn-peq" href="#/auditar/${tienda.id}">+ Nueva auditoría</a></span></div>
+        ${auditorias.length ? `<ul class="lista">${filas}</ul>` : vacio}
       </div>`;
+
+    // HU-M04: exporta exactamente lo que muestra el historial (misma tienda y mismo filtro)
+    const botonCsv = document.getElementById("csv");
+    if (botonCsv) {
+      const q = new URLSearchParams({ tienda_id: tienda.id });
+      if (filtro.desde) q.set("desde", filtro.desde);
+      if (filtro.hasta) q.set("hasta", filtro.hasta);
+      botonCsv.onclick = (ev) => descargar(ev.target, `/exportar/auditorias.csv?${q}`, "auditorias.csv",
+        document.querySelector("#filtro .mensajes"));
+    }
+
+    document.getElementById("filtro").addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      const f = ev.target, nueva = new URLSearchParams();
+      if (f.desde.value && f.hasta.value && f.desde.value > f.hasta.value) {
+        f.querySelector(".mensajes").innerHTML = alerta("error", "La fecha inicial no puede ser posterior a la fecha final.");
+        return;
+      }
+      if (f.desde.value) nueva.set("desde", f.desde.value);
+      if (f.hasta.value) nueva.set("hasta", f.hasta.value);
+      ir(`#/historial/${tienda.id}${nueva.toString() ? "?" + nueva : ""}`);
+    });
   },
 };
 
@@ -420,7 +509,8 @@ const Vistas = {
 const PUBLICAS = ["login", "registro", "expirada"];
 
 async function router() {
-  const [, vista = "", param] = (location.hash || "#/").split("/");
+  const [ruta, consulta = ""] = (location.hash || "#/").split("?");
+  const [, vista = "", param] = ruta.split("/");
   const autenticado = !!Sesion.token();
   let nombre = vista || (autenticado ? "dashboard" : "login");
   if (!Vistas[nombre]) nombre = autenticado ? "dashboard" : "login";
@@ -435,7 +525,7 @@ async function router() {
   }
 
   try {
-    await Vistas[nombre](param);
+    await Vistas[nombre](param, new URLSearchParams(consulta));
   } catch (e) {
     if (!(e instanceof SesionExpirada)) $app.innerHTML = alerta("error", e.message);
   }

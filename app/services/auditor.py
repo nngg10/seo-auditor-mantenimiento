@@ -1,11 +1,14 @@
 """Orquesta una auditoría completa: scraper y PageSpeed en paralelo, evaluación y diagnóstico IA."""
 import asyncio
+import logging
 import time
 
 from .ai_agent import AgenteIA
 from .evaluador import EvaluadorRendimiento, EvaluadorSEO, ordenar
 from .pagespeed import ClientePageSpeed, PageSpeedError
 from .scraper import ScraperError, WebScraper  # noqa: F401  (ScraperError se re-exporta)
+
+log = logging.getLogger("uvicorn.error")
 
 
 class ServicioAuditoria:
@@ -31,6 +34,11 @@ class ServicioAuditoria:
             psi = await tarea_psi
         except PageSpeedError as e:
             psi_error = str(e)
+        except Exception:
+            # HU-M02 (CA-02): un fallo inesperado de PageSpeed deja la auditoría como parcial
+            # en lugar de romperla; el detalle técnico queda en el log, no en la respuesta.
+            log.exception("Respuesta inesperada de PageSpeed para %s", url)
+            psi_error = "PageSpeed devolvió una respuesta inesperada; no se obtuvieron métricas de velocidad."
 
         hallazgos_seo = self.eval_seo.evaluar(scraping)
         hallazgos = ordenar([h.a_dict() for h in hallazgos_seo + self.eval_rendimiento.evaluar(psi)])

@@ -1,6 +1,8 @@
 """API REST (FastAPI) y servidor de la interfaz web."""
 import re
+import unicodedata
 from contextlib import asynccontextmanager
+from datetime import date, datetime
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -16,7 +18,9 @@ from .models import AuditoriaRepositorio, TiendaRepositorio, Usuario, UsuarioRep
 from .security import contrasenas, tokens, usuario_actual
 from .services.ai_agent import AgenteIA
 from .services.auditor import ScraperError, ServicioAuditoria
+from .services.exportador_csv import ExportadorCSV
 from .services.pdf_report import GeneradorReportePDF
+from .services.seguridad_url import URLNoPermitida, politica_por_defecto
 
 
 @asynccontextmanager
@@ -28,13 +32,14 @@ async def ciclo_de_vida(_app):
     await keep_alive.detener()
 
 
-app = FastAPI(title="Auditor SEO & PageSpeed AI", version="1.0.0", lifespan=ciclo_de_vida)
+app = FastAPI(title="Auditor SEO & PageSpeed AI", version="1.1.0", lifespan=ciclo_de_vida)
 
 usuarios = UsuarioRepositorio(db)
 tiendas = TiendaRepositorio(db)
 auditorias = AuditoriaRepositorio(db)
 servicio_auditoria = ServicioAuditoria()
 generador_pdf = GeneradorReportePDF()
+exportador_csv = ExportadorCSV()
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -44,11 +49,21 @@ def error(codigo: int, mensaje: str) -> HTTPException:
 
 
 def normalizar_url(url: str) -> str:
-    url = (url or "").strip()
+    """HU-M01: valida formato y rechaza destinos locales sin consultar DNS."""
+    try:
+        url = politica_por_defecto.validar_formato(url)
+    except URLNoPermitida as e:
+        raise error(422, str(e))
     p = urlparse(url)
-    if p.scheme not in ("http", "https") or not p.netloc or ("." not in p.netloc and "localhost" not in p.netloc):
-        raise error(422, "La URL no es válida. Debe empezar por http:// o https:// (ej. https://mitienda.com).")
     return url.rstrip("/") if p.path in ("", "/") and not p.query else url
+
+
+async def validar_destino(url: str) -> None:
+    """HU-M01: validación completa (incluye DNS) antes de que el servidor se conecte."""
+    try:
+        await politica_por_defecto.validar(url)
+    except URLNoPermitida as e:
+        raise error(422, f"No se pudo auditar la URL: {e}")
 
 
 # ------------------------------------------------------------------ Esquemas
@@ -152,19 +167,46 @@ def eliminar_tienda(tienda_id: int, usuario: Usuario = Depends(usuario_actual)):
 
 
 # ----------------------------------------------------------- HU-06 Historial
+FECHA_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _fecha_filtro(valor: Optional[str]) -> Optional[date]:
+    """HU-M03: convierte un parámetro AAAA-MM-DD; vacío equivale a sin límite."""
+    if valor is None or not valor.strip():
+        return None
+    valor = valor.strip()
+    try:
+        if not FECHA_RE.match(valor):
+            raise ValueError
+        return datetime.strptime(valor, "%Y-%m-%d").date()
+    except ValueError:
+        raise error(422, f"La fecha «{valor}» no es válida. Usa el formato AAAA-MM-DD.")
+
+
 @app.get("/api/tiendas/{tienda_id}/auditorias")
-def historial(tienda_id: int, usuario: Usuario = Depends(usuario_actual)):
+def historial(tienda_id: int, desde: Optional[str] = None, hasta: Optional[str] = None,
+              usuario: Usuario = Depends(usuario_actual)):
     tienda = tiendas.obtener(usuario.id, tienda_id)
     if not tienda:
         raise error(404, "Tienda no encontrada.")
-    lista = auditorias.listar_por_tienda(tienda_id)
-    salida = []
-    for i, a in enumerate(lista):
-        d = a.resumen()
-        previa = lista[i + 1] if i + 1 < len(lista) else None
-        d["variacion"] = _variacion(a, previa)
-        salida.append(d)
-    return {"tienda": tienda.a_dict(), "auditorias": salida}
+    f_desde, f_hasta = _fecha_filtro(desde), _fecha_filtro(hasta)
+    if f_desde and f_hasta and f_desde > f_hasta:
+        raise error(422, "La fecha inicial no puede ser posterior a la fecha final.")
+
+    # La variación se calcula sobre el historial completo, para que cada auditoría se compare
+    # con su anterior real aunque esa quede fuera del filtro.
+    completo = auditorias.listar_por_tienda(tienda_id)
+    variaciones = {a.id: _variacion(a, completo[i + 1] if i + 1 < len(completo) else None)
+                   for i, a in enumerate(completo)}
+    filtradas = auditorias.listar_por_tienda(tienda_id, f_desde, f_hasta) if (f_desde or f_hasta) else completo
+    salida = [{**a.resumen(), "variacion": variaciones[a.id]} for a in filtradas]
+    return {
+        "tienda": tienda.a_dict(),
+        "auditorias": salida,
+        "total": len(completo),
+        "filtro": {"desde": f_desde.isoformat() if f_desde else None,
+                   "hasta": f_hasta.isoformat() if f_hasta else None},
+    }
 
 
 def _variacion(a, previa) -> Optional[dict]:
@@ -182,6 +224,7 @@ async def ejecutar_auditoria(datos: AuditoriaIn, usuario: Usuario = Depends(usua
     if not tienda:
         raise error(404, "Tienda no encontrada.")
     url = normalizar_url(datos.url or tienda.url)
+    await validar_destino(url)
     try:
         resultado = await servicio_auditoria.ejecutar(url)
     except ScraperError as e:
@@ -223,6 +266,27 @@ def exportar_pdf(auditoria_id: int, usuario: Usuario = Depends(usuario_actual)):
     contenido = generador_pdf.generar(a, tiendas.obtener(usuario.id, a.tienda_id))
     return Response(contenido, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="Reporte-{a.codigo}.pdf"'})
+
+
+# ------------------------------------------------------ HU-M04 Exportar CSV
+@app.get("/api/exportar/auditorias.csv")
+def exportar_csv(tienda_id: Optional[int] = None, desde: Optional[str] = None, hasta: Optional[str] = None,
+                 usuario: Usuario = Depends(usuario_actual)):
+    tienda = None
+    if tienda_id is not None:
+        tienda = tiendas.obtener(usuario.id, tienda_id)
+        if not tienda:
+            raise error(404, "Tienda no encontrada.")
+    f_desde, f_hasta = _fecha_filtro(desde), _fecha_filtro(hasta)
+    if f_desde and f_hasta and f_desde > f_hasta:
+        raise error(422, "La fecha inicial no puede ser posterior a la fecha final.")
+    filas = auditorias.listar_por_usuario(usuario.id, tienda_id, f_desde, f_hasta)
+    # Nombre de archivo ASCII legible: "Zapatería El Ñandú" -> "zapateria-el-nandu"
+    ascii_ = unicodedata.normalize("NFKD", tienda.nombre if tienda else "todas").encode("ascii", "ignore").decode()
+    base = re.sub(r"[^a-z0-9]+", "-", ascii_.lower()).strip("-")
+    nombre = f"auditorias-{base or 'tienda'}-{datetime.now():%Y%m%d}.csv"
+    return Response(exportador_csv.generar(filas), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="{nombre}"'})
 
 
 @app.get("/api/salud", include_in_schema=False)

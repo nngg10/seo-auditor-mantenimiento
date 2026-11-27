@@ -1,6 +1,7 @@
 """Entidades del dominio (POO) y repositorios que las persisten en SQLite."""
 import json
 from dataclasses import asdict, dataclass, field
+from datetime import date
 from typing import Optional
 
 from .database import BaseDeDatos
@@ -240,11 +241,19 @@ class AuditoriaRepositorio:
             ).fetchone()
         return Auditoria.desde_fila(f) if f else None
 
-    def listar_por_tienda(self, tienda_id: int) -> list[Auditoria]:
+    def listar_por_tienda(self, tienda_id: int, desde: Optional[date] = None,
+                          hasta: Optional[date] = None) -> list[Auditoria]:
+        """Auditorías de la tienda, de la más reciente a la más antigua.
+        HU-M03: `desde` y `hasta` son opcionales e incluyen el día completo."""
+        sql, params = "SELECT * FROM auditorias WHERE tienda_id = ?", [tienda_id]
+        if desde is not None:
+            sql += " AND date(fecha) >= ?"
+            params.append(desde.isoformat())
+        if hasta is not None:
+            sql += " AND date(fecha) <= ?"
+            params.append(hasta.isoformat())
         with self.db.sesion() as c:
-            filas = c.execute(
-                "SELECT * FROM auditorias WHERE tienda_id = ? ORDER BY fecha DESC, id DESC", (tienda_id,)
-            ).fetchall()
+            filas = c.execute(sql + " ORDER BY fecha DESC, id DESC", params).fetchall()
         return [Auditoria.desde_fila(f) for f in filas]
 
     def anterior(self, auditoria: Auditoria) -> Optional[Auditoria]:

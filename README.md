@@ -61,6 +61,15 @@ El servidor solo se conecta a sitios públicos (`app/services/seguridad_url.py`)
 - Resuelve el dominio por DNS y exige que **todas** sus IP sean públicas.
 - Valida también cada redirección y se conecta a la IP ya validada, lo que evita el *DNS rebinding*.
 
+## Historial filtrado por fechas (HU-M03)
+
+`GET /api/tiendas/{id}/auditorias?desde=AAAA-MM-DD&hasta=AAAA-MM-DD`
+
+- Ambos límites son opcionales e incluyen el día completo.
+- Se rechaza (422) una fecha con formato inválido o una fecha inicial posterior a la final.
+- La variación de cada auditoría se calcula contra su anterior real, aunque esa quede fuera del filtro.
+- La respuesta incluye `total` (auditorías sin filtrar) y el `filtro` aplicado.
+
 ## Despliegue en Render
 
 - Build: `pip install -r requirements.txt`

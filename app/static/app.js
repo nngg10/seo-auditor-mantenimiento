@@ -413,9 +413,25 @@ const Vistas = {
     };
   },
 
-  // HU-06
-  async historial(tiendaId) {
-    const { tienda, auditorias } = await api("GET", `/tiendas/${tiendaId}/auditorias`);
+  // HU-06 + HU-M03 (filtro por intervalo de fechas)
+  async historial(tiendaId, consulta = new URLSearchParams()) {
+    const pedido = new URLSearchParams();
+    for (const k of ["desde", "hasta"]) if (consulta.get(k)) pedido.set(k, consulta.get(k));
+    let datos, errorFiltro = "";
+    try {
+      datos = await api("GET", `/tiendas/${tiendaId}/auditorias${pedido.toString() ? "?" + pedido : ""}`);
+    } catch (e) {
+      if (e instanceof SesionExpirada || !pedido.toString()) throw e;
+      errorFiltro = e.message;                       // filtro inválido: se muestra sin filtrar
+      datos = await api("GET", `/tiendas/${tiendaId}/auditorias`);
+    }
+    const { tienda, auditorias, total } = datos;
+    const filtro = errorFiltro ? { desde: null, hasta: null } : datos.filtro;
+    const filtrado = !!(filtro.desde || filtro.hasta);
+    const fmtDia = (d) => d.split("-").reverse().join("/");
+    const rango = [filtro.desde && `desde el ${fmtDia(filtro.desde)}`, filtro.hasta && `hasta el ${fmtDia(filtro.hasta)}`]
+      .filter(Boolean).join(" ");
+
     const filas = auditorias.map((a) => `
       <li>
         <div class="info"><strong>#${esc(a.codigo)} · ${fmtFecha(a.fecha)}</strong>
@@ -425,14 +441,46 @@ const Vistas = {
         </div>
         <div class="acciones"><a class="btn btn-sec btn-peq" href="#/auditoria/${a.id}">Ver detalle</a></div>
       </li>`).join("");
+    const vacio = filtrado
+      ? `<div class="vacio"><p>No hay auditorías ${esc(rango)}.</p>
+           <a class="btn btn-sec" href="#/historial/${tienda.id}">Limpiar filtro</a></div>`
+      : `<div class="vacio"><p>Aún no hay auditorías para esta tienda.</p><a class="btn" href="#/auditar/${tienda.id}">+ Nueva auditoría</a></div>`;
+
     $app.innerHTML = `
       <h1>Historial de auditorías</h1>
       <p class="sub">Tienda: ${esc(tienda.nombre)} · ${esc(tienda.url)}</p>
+      <div class="panel" style="margin-bottom:14px">
+        <div class="panel-cab">Filtrar por fecha</div>
+        <form class="panel-cuerpo" id="filtro">
+          <div class="mensajes">${errorFiltro ? alerta("error", errorFiltro) : ""}</div>
+          <div class="fila">
+            <div class="campo"><label>Fecha inicial</label><input type="date" name="desde" value="${esc(filtro.desde || "")}"></div>
+            <div class="campo"><label>Fecha final</label><input type="date" name="hasta" value="${esc(filtro.hasta || "")}"></div>
+            <div class="campo acciones" style="flex:0 0 auto">
+              <button class="btn" type="submit">Filtrar</button>
+              ${filtrado ? `<a class="btn btn-sec" href="#/historial/${tienda.id}">Limpiar filtro</a>` : ""}
+            </div>
+          </div>
+        </form>
+      </div>
       <div class="panel">
-        <div class="panel-cab">Auditorías (${auditorias.length}) <a class="btn btn-peq" href="#/auditar/${tienda.id}">+ Nueva auditoría</a></div>
-        ${auditorias.length ? `<ul class="lista">${filas}</ul>` :
-          `<div class="vacio"><p>Aún no hay auditorías para esta tienda.</p><a class="btn" href="#/auditar/${tienda.id}">+ Nueva auditoría</a></div>`}
+        <div class="panel-cab">Auditorías (${filtrado ? `${auditorias.length} de ${total}` : auditorias.length})
+          ${filtrado ? `<small>${esc(rango)}</small>` : ""}
+          <a class="btn btn-peq" href="#/auditar/${tienda.id}">+ Nueva auditoría</a></div>
+        ${auditorias.length ? `<ul class="lista">${filas}</ul>` : vacio}
       </div>`;
+
+    document.getElementById("filtro").addEventListener("submit", (ev) => {
+      ev.preventDefault();
+      const f = ev.target, nueva = new URLSearchParams();
+      if (f.desde.value && f.hasta.value && f.desde.value > f.hasta.value) {
+        f.querySelector(".mensajes").innerHTML = alerta("error", "La fecha inicial no puede ser posterior a la fecha final.");
+        return;
+      }
+      if (f.desde.value) nueva.set("desde", f.desde.value);
+      if (f.hasta.value) nueva.set("hasta", f.hasta.value);
+      ir(`#/historial/${tienda.id}${nueva.toString() ? "?" + nueva : ""}`);
+    });
   },
 };
 
@@ -440,7 +488,8 @@ const Vistas = {
 const PUBLICAS = ["login", "registro", "expirada"];
 
 async function router() {
-  const [, vista = "", param] = (location.hash || "#/").split("/");
+  const [ruta, consulta = ""] = (location.hash || "#/").split("?");
+  const [, vista = "", param] = ruta.split("/");
   const autenticado = !!Sesion.token();
   let nombre = vista || (autenticado ? "dashboard" : "login");
   if (!Vistas[nombre]) nombre = autenticado ? "dashboard" : "login";
@@ -455,7 +504,7 @@ async function router() {
   }
 
   try {
-    await Vistas[nombre](param);
+    await Vistas[nombre](param, new URLSearchParams(consulta));
   } catch (e) {
     if (!(e instanceof SesionExpirada)) $app.innerHTML = alerta("error", e.message);
   }

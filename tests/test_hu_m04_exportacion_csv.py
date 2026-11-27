@@ -1,7 +1,6 @@
 """HU-M04: exportación de resultados en CSV (CA-01 a CA-05).
 
-El CSV usa UTF-8 con BOM y punto y coma como separador para que Excel en español
-lo abra directamente en columnas y con las tildes correctas.
+El CSV usa UTF-8 con BOM (tildes correctas en Excel) y coma como separador (RFC 4180).
 """
 import csv
 import io
@@ -44,7 +43,7 @@ def tienda(cliente, headers, nombre, url):
 def leer_csv(r):
     assert r.status_code == 200, r.text
     assert r.content.startswith(b"\xef\xbb\xbf"), "debe incluir BOM UTF-8 para Excel"
-    return list(csv.reader(io.StringIO(r.content.decode("utf-8-sig")), delimiter=";"))
+    return list(csv.reader(io.StringIO(r.content.decode("utf-8-sig")), delimiter=","))
 
 
 # ------------------------------------------------------------------- CA-01
@@ -142,6 +141,13 @@ def test_ca05_los_puntajes_numericos_no_se_alteran(cliente):
     t = tienda(cliente, h, "Tienda", "https://books.toscrape.com")
     crear_auditoria(t, "2026-11-19 11:20:00", seo=0, rendimiento=100)
     assert leer_csv(cliente.get(RUTA, headers=h))[1][3:5] == ["0", "100"]
+
+
+def test_nombre_de_archivo_legible_sin_tildes(cliente):
+    h = cuenta(cliente)
+    t = tienda(cliente, h, 'Zapatería "El Ñandú", calzado', "https://books.toscrape.com")
+    disp = cliente.get(RUTA, params={"tienda_id": t}, headers=h).headers["content-disposition"]
+    assert 'filename="auditorias-zapateria-el-nandu-calzado-' in disp
 
 
 def test_sin_auditorias_devuelve_solo_encabezados(cliente):

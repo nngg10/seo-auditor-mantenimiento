@@ -4,6 +4,8 @@ Registro de las cinco intervenciones de mantenimiento sobre el auditor SEO y Pag
 Línea base: commit `7be7c41` (proyecto original `nngg10/seo-pagespeed-ai-auditor`).
 Cada historia tiene su issue en GitHub, donde se actualiza su estado.
 
+Trabajo individual: todas las historias las desarrolla Esneider Yesid Giraldo González (@nngg10). Como no hay otros integrantes, la revisión se hace mediante pull request hacia `develop`, comprobando los criterios de aceptación y las pruebas automatizadas antes de integrar.
+
 | Historia | Issue | Tipo | Rama | Estado |
 |---|---|---|---|---|
 | HU-M01 Validación segura de direcciones de auditoría | [#1](https://github.com/nngg10/seo-auditor-mantenimiento/issues/1) | preventivo, correctivo | `feature/HU-M01-validacion-url` | Pendiente |
@@ -46,8 +48,8 @@ Cada historia tiene su issue en GitHub, donde se actualiza su estado.
 
 ### Trazabilidad
 - Rama: `feature/HU-M01-validacion-url` (se crea desde `develop`)
-- Responsable: _por asignar_
-- Revisor: _por asignar_
+- Responsable: Esneider Yesid Giraldo González (@nngg10)
+- Revisión: trabajo individual; autorrevisión mediante pull request hacia `develop` y pruebas automatizadas
 - Estado: **pendiente**
 
 
@@ -86,8 +88,8 @@ Cada historia tiene su issue en GitHub, donde se actualiza su estado.
 
 ### Trazabilidad
 - Rama: `feature/HU-M02-estado-servicios` (se crea desde `develop`)
-- Responsable: _por asignar_
-- Revisor: _por asignar_
+- Responsable: Esneider Yesid Giraldo González (@nngg10)
+- Revisión: trabajo individual; autorrevisión mediante pull request hacia `develop` y pruebas automatizadas
 - Estado: **pendiente**
 
 
@@ -122,8 +124,8 @@ Cada historia tiene su issue en GitHub, donde se actualiza su estado.
 
 ### Trazabilidad
 - Rama: `feature/HU-M03-filtro-historial` (se crea desde `develop`)
-- Responsable: _por asignar_
-- Revisor: _por asignar_
+- Responsable: Esneider Yesid Giraldo González (@nngg10)
+- Revisión: trabajo individual; autorrevisión mediante pull request hacia `develop` y pruebas automatizadas
 - Estado: **pendiente**
 
 
@@ -158,8 +160,8 @@ Cada historia tiene su issue en GitHub, donde se actualiza su estado.
 
 ### Trazabilidad
 - Rama: `feature/HU-M04-exportacion-csv` (se crea desde `develop`)
-- Responsable: _por asignar_
-- Revisor: _por asignar_
+- Responsable: Esneider Yesid Giraldo González (@nngg10)
+- Revisión: trabajo individual; autorrevisión mediante pull request hacia `develop` y pruebas automatizadas
 - Estado: **pendiente**
 
 
@@ -194,6 +196,6 @@ Cada historia tiene su issue en GitHub, donde se actualiza su estado.
 
 ### Trazabilidad
 - Rama: `feature/HU-M05-aislamiento-auditorias` (se crea desde `develop`)
-- Responsable: _por asignar_
-- Revisor: _por asignar_
+- Responsable: Esneider Yesid Giraldo González (@nngg10)
+- Revisión: trabajo individual; autorrevisión mediante pull request hacia `develop` y pruebas automatizadas
 - Estado: **pendiente**
